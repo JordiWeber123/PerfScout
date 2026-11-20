@@ -2,41 +2,43 @@
 
 ## Project Structure & Module Organization
 
-This repository currently contains the product specification in `PROJECT.md`; implementation, tests, and build configuration have not yet been created. The project will become a CLI for evidence-based performance investigations.
+This is currently a specification-first repository: `PROJECT.md` defines an evidence-based CLI for comparing a baseline and candidate revision using profiler artifacts. No application source, tests, or build configuration exist yet.
 
-When adding the first implementation, keep concerns separate:
+When implementation begins, use a clear Go-oriented layout:
 
-- `cmd/` for the CLI entry point and command wiring.
-- `internal/` for orchestration, repository/worktree handling, experiment records, and reporting.
-- `adapters/` for profiler-specific integrations (initially PAPI, Go benchmark output, and pprof CPU profiles).
-- `testdata/` for small, versioned profiler fixtures and manifests; never add large raw captures unless essential.
+- `cmd/` for CLI entry points and flag wiring.
+- `internal/` for investigation orchestration, worktrees, manifests, experiment records, and reports.
+- `adapters/` for profiler integrations; begin with PAPI, Go benchmark output, and pprof CPU profiles.
+- `testdata/` for small, versioned manifests and sanitized profiler fixtures.
 
-Preserve source artifacts and manifests. Adapters should return structured, evidence-referenced results without flattening profiler-specific data.
+Keep raw artifacts immutable and preserve profiler-specific fields; a common interface must not reduce CPU, GPU, and counter data to a single generic metric.
 
 ## Build, Test, and Development Commands
 
-There are no runnable commands yet. Add canonical commands when tooling is introduced. A Go-oriented initial layout would normally support:
+There are no runnable commands yet. Once Go tooling is committed, the expected baseline is:
 
 ```powershell
-go build ./...       # compile all packages
-go test ./...        # run unit and integration tests
-go vet ./...         # run static checks
+go build ./...  # Compile every package
+go test ./...   # Run unit and integration tests
+go vet ./...    # Run static analysis
 ```
 
-Only document commands whose configuration and dependencies are committed.
+Only add commands to this guide after their configuration and dependencies are checked in.
 
 ## Coding Style & Naming Conventions
 
-Follow the formatter and idioms of the selected language; for Go, run `gofmt` and `go vet`. Use domain-focused names such as `BaselineManifest`, `PprofAdapter`, and `ExperimentPlan`. Keep public APIs small. Do not hide units: use `DurationNs`, `AllocBytes`, or an explicit unit field.
+Follow the formatter and idioms of the chosen language. For Go, run `gofmt` on changed files and `go vet ./...` before review. Use focused, domain-driven names such as `PprofAdapter`, `BaselineManifest`, and `ExperimentPlan`. Keep exported APIs small and document exported types.
+
+Make units unambiguous: prefer fields such as `DurationNs` and `AllocBytes`, or include an explicit unit. Return structured results with evidence references instead of unbounded profile dumps.
 
 ## Testing Guidelines
 
-Add tests alongside covered code, using behavior names such as `TestPprofAdapterReportsHotspots`. Prefer deterministic fixtures in `testdata/`; redact host paths, tokens, and machine-identifying details. Test parsing, unit conversion, evidence references, revision selection, and experiment interpretation independently. Integration tests must use disposable repositories or detached worktrees.
+Place tests beside the package they cover and use Go names such as `TestPprofAdapterReportsHotspots`. Prefer deterministic fixtures in `testdata/`. Test parsing, unit conversion, evidence references, revision selection, and hypothesis interpretation independently. Integration tests must use disposable repositories or detached worktrees so a user's working tree remains unchanged.
 
-## Commit & Pull Request Guidelines
+## Commits and Pull Requests
 
-The repository has no commits yet, so no convention can be inferred. Use short, imperative subjects such as `Add pprof CPU adapter`. Keep commits focused. Pull requests should explain the behavior change, validation, affected formats, and schema changes. Include representative CLI or report output when helpful; never include sensitive profiles or credentials.
+Recent history uses concise, imperative summaries (for example, `Little detail in PROJECT.md`). Continue that style: `Add pprof CPU adapter`. Keep commits narrowly scoped. Pull requests should describe behavior changes, validation performed, affected artifact formats or schema changes, and representative CLI/report output when useful.
 
-## Security & Configuration
+## Security and Configuration
 
-Treat repositories and profiler artifacts as untrusted input. Never execute recorded collection commands automatically without explicit user approval. Keep credentials, absolute local paths, and raw customer artifacts out of version control.
+Treat repositories and profiling artifacts as untrusted. Never run recorded collection commands without explicit approval. Do not commit credentials, absolute local paths, machine-identifying details, or customer profile captures; sanitize fixtures before adding them.
