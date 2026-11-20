@@ -9,6 +9,8 @@ Initially, it should use the Codex SDK as that's the platform the developer uses
 
 The user's working repository shouldn't be affected by this tool, but if needed detached worktrees could be used
 
+The project is a CLI tool. GUI can potentially be added later: 
+
 ```bash
 <toolname> investigate \
   --repo ./my-service \
