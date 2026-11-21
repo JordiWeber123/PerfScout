@@ -1,0 +1,15 @@
+$target = (Resolve-Path 'C:\Users\miste\Programming\test-repo').Path
+git -C $target log --oneline
+
+# Use the full SHAs for the original and optimized source commits.
+$base = '764419c6b90c06466a8c2fe428523690ff64edfa'
+$candidate = 'aa0a9f3dcdc812f0e9d8a67a728171522239b7b7'
+$report = Join-Path (Split-Path -Parent $target) 'parcel-investigation'
+
+uv run profiler-ai investigate `
+  --repo "$target" `
+  --base "$base" `
+  --candidate "$candidate" `
+  --baseline-run "$target/parcel-baseline" `
+  --candidate-run "$target/parcel-candidate" `
+  --output "$report"

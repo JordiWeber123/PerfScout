@@ -1,0 +1,7 @@
+parcels: 8000
+scans: 100000
+BenchmarkParcelAudit 1 3237613 ns/op
+BenchmarkParcelAudit 1 920420 ns/op
+BenchmarkParcelAudit 1 994884 ns/op
+BenchmarkParcelAudit 1 925370 ns/op
+BenchmarkParcelAudit 1 919278 ns/op

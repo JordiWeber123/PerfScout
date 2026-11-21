@@ -52,6 +52,7 @@ class Report(Model):
     status: Literal["complete", "agent_failed", "measurements_only"]
     error: str | None = None
     citations: dict[str, dict]
+    provenance: dict | None = None
 
 
 def render(report: Report) -> str:

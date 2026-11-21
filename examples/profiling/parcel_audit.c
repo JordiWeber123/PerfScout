@@ -10,13 +10,11 @@
 #include <time.h>
 
 enum { DEPOTS = 24, ZONES = 12, DAYS = 14, SERVICES = 3, WEIGHT_BANDS = 16 };
+enum { FIRST_TRACKING_ID = 1009, TRACKING_STRIDE = 7919, BAND_GRAMS = 500 };
 
 typedef struct {
     uint32_t tracking_id;
-    unsigned zone;
-    unsigned grams;
-    unsigned service;
-    unsigned scans;
+    unsigned tariff_cents;
     unsigned depot;
     unsigned status;
 } Parcel;
@@ -27,13 +25,6 @@ typedef struct {
     unsigned day;
     unsigned status;
 } Scan;
-
-typedef struct {
-    unsigned zone;
-    unsigned service;
-    unsigned max_grams;
-    unsigned cents;
-} Tariff;
 
 typedef struct {
     unsigned depot;
@@ -73,37 +64,40 @@ static void *allocate(size_t count, size_t size)
     return memory;
 }
 
+typedef struct {
+    uint64_t charges;
+    unsigned delivered;
+    unsigned rerouted;
+    unsigned unmatched;
+} DepotDay;
+
 static Parcel *find_parcel(Parcel *parcels, size_t count, uint32_t tracking_id)
 {
-    for (size_t i = 0; i < count; ++i) {
-        if (parcels[i].tracking_id == tracking_id)
-            return &parcels[i];
-    }
-    return NULL;
+    if (tracking_id < FIRST_TRACKING_ID)
+        return NULL;
+    uint32_t offset = tracking_id - FIRST_TRACKING_ID;
+    uint32_t index = offset / TRACKING_STRIDE;
+    if (index >= count || parcels[index].tracking_id != tracking_id)
+        return NULL;
+    return &parcels[index];
 }
 
-static unsigned quote(const Tariff *tariffs, size_t count, const Parcel *parcel)
+static unsigned tariff_cents(unsigned zone, unsigned grams, unsigned service)
 {
-    for (size_t i = 0; i < count; ++i) {
-        const Tariff *rule = &tariffs[i];
-        if (rule->zone == parcel->zone && rule->service == parcel->service &&
-            parcel->grams <= rule->max_grams)
-            return rule->cents;
-    }
-    return 0;
+    unsigned band = 1 + (grams - 1) / BAND_GRAMS;
+    return 130 + 37 * zone + 81 * service + 24 * band;
 }
 
 static void replay(Parcel *parcels, size_t parcel_count, const Scan *scans, size_t scan_count,
-                   const Tariff *tariffs, size_t tariff_count, Receipt *receipts)
+                   Receipt *receipts)
 {
     for (size_t i = 0; i < scan_count; ++i) {
         const Scan *scan = &scans[i];
         Parcel *parcel = find_parcel(parcels, parcel_count, scan->tracking_id);
         unsigned cents = 0;
         if (parcel != NULL) {
-            if (parcel->scans == 0 || parcel->depot != scan->depot)
-                cents = quote(tariffs, tariff_count, parcel);
-            parcel->scans++;
+            if (parcel->status == 0 || parcel->depot != scan->depot)
+                cents = parcel->tariff_cents;
             parcel->depot = scan->depot;
             parcel->status = scan->status;
         }
@@ -112,29 +106,43 @@ static void replay(Parcel *parcels, size_t parcel_count, const Scan *scans, size
 }
 
 static uint64_t summarize(const Receipt *receipts, size_t count,
-                          const Parcel *parcels, size_t parcel_count)
+                          const Parcel *parcels, size_t parcel_count, uint32_t *members)
 {
+    DepotDay totals[DEPOTS][DAYS] = {{{0}}};
+    for (size_t i = 0; i < count; ++i) {
+        const Receipt *receipt = &receipts[i];
+        DepotDay *total = &totals[receipt->depot][receipt->day];
+        total->charges += receipt->cents;
+        total->delivered += receipt->status == 3;
+        total->rerouted += receipt->status == 2;
+        total->unmatched += receipt->status == 0;
+    }
+
+    size_t boundaries[DEPOTS + 1] = {0};
+    for (size_t i = 0; i < parcel_count; ++i)
+        if (parcels[i].status != 0)
+            ++boundaries[parcels[i].depot + 1];
+    for (unsigned depot = 0; depot < DEPOTS; ++depot)
+        boundaries[depot + 1] += boundaries[depot];
+
+    size_t next[DEPOTS];
+    memcpy(next, boundaries, sizeof(next));
+    // Store each depot's parcels in inventory order for the report checksum.
+    for (size_t i = 0; i < parcel_count; ++i) {
+        const Parcel *parcel = &parcels[i];
+        if (parcel->status != 0)
+            members[next[parcel->depot]++] = parcel->tracking_id + parcel->status;
+    }
+
     uint64_t digest = 0;
     for (unsigned depot = 0; depot < DEPOTS; ++depot) {
         for (unsigned day = 0; day < DAYS; ++day) {
-            uint64_t charges = 0;
-            unsigned delivered = 0, rerouted = 0, unmatched = 0;
-            for (size_t i = 0; i < count; ++i) {
-                const Receipt *receipt = &receipts[i];
-                if (receipt->depot != depot || receipt->day != day)
-                    continue;
-                charges += receipt->cents;
-                delivered += receipt->status == 3;
-                rerouted += receipt->status == 2;
-                unmatched += receipt->status == 0;
-            }
-            digest = digest * 1099511628211ULL ^ (charges + 7 * delivered +
-                                                  13 * rerouted + 19 * unmatched);
+            const DepotDay *total = &totals[depot][day];
+            digest = digest * 1099511628211ULL ^ (total->charges + 7 * total->delivered +
+                                                  13 * total->rerouted + 19 * total->unmatched);
         }
-        for (size_t i = 0; i < parcel_count; ++i) {
-            if (parcels[i].scans && parcels[i].depot == depot)
-                digest = digest * 1099511628211ULL ^ (parcels[i].tracking_id + parcels[i].status);
-        }
+        for (size_t i = boundaries[depot]; i < boundaries[depot + 1]; ++i)
+            digest = digest * 1099511628211ULL ^ members[i];
     }
     return digest;
 }
@@ -170,24 +178,15 @@ int main(int argc, char **argv)
     Parcel *parcels = allocate(parcel_count, sizeof(*parcels));
     Scan *scans = allocate(scan_count, sizeof(*scans));
     Receipt *receipts = allocate(scan_count, sizeof(*receipts));
-    Tariff tariffs[ZONES * WEIGHT_BANDS * SERVICES];
-    size_t tariff_count = 0;
+    uint32_t *members = allocate(parcel_count, sizeof(*members));
     uint32_t state = 0x615aa312;
 
-    for (unsigned band = 1; band <= WEIGHT_BANDS; ++band) {
-        for (unsigned zone = 0; zone < ZONES; ++zone) {
-            for (unsigned service = 0; service < SERVICES; ++service) {
-                tariffs[tariff_count++] = (Tariff){
-                    zone, service, band * 500, 130 + 37 * zone + 81 * service + 24 * band,
-                };
-            }
-        }
-    }
     for (unsigned i = 0; i < parcel_count; ++i) {
-        inventory[i].tracking_id = 1009 + 7919 * i;
-        inventory[i].zone = draw(&state) % ZONES;
-        inventory[i].grams = 1 + draw(&state) % (WEIGHT_BANDS * 500);
-        inventory[i].service = draw(&state) % SERVICES;
+        unsigned zone = draw(&state) % ZONES;
+        unsigned grams = 1 + draw(&state) % (WEIGHT_BANDS * BAND_GRAMS);
+        unsigned service = draw(&state) % SERVICES;
+        inventory[i].tracking_id = FIRST_TRACKING_ID + TRACKING_STRIDE * i;
+        inventory[i].tariff_cents = tariff_cents(zone, grams, service);
     }
     for (unsigned i = 0; i < scan_count; ++i) {
         unsigned range = (i % 5) ? (parcel_count + 7) / 8 : parcel_count;
@@ -204,11 +203,11 @@ int main(int argc, char **argv)
         memcpy(parcels, inventory, parcel_count * sizeof(*parcels));
         check_papi(PAPI_hl_region_begin("scan_replay"), "scan_replay begin");
         uint64_t start = monotonic_ns();
-        replay(parcels, parcel_count, scans, scan_count, tariffs, tariff_count, receipts);
+        replay(parcels, parcel_count, scans, scan_count, receipts);
         check_papi(PAPI_hl_region_end("scan_replay"), "scan_replay end");
 
         check_papi(PAPI_hl_region_begin("depot_report"), "depot_report begin");
-        uint64_t digest = summarize(receipts, scan_count, parcels, parcel_count);
+        uint64_t digest = summarize(receipts, scan_count, parcels, parcel_count, members);
         uint64_t elapsed = monotonic_ns() - start;
         check_papi(PAPI_hl_region_end("depot_report"), "depot_report end");
         if (run == 0)
@@ -220,6 +219,7 @@ int main(int argc, char **argv)
         printf("BenchmarkParcelAudit 1 %" PRIu64 " ns/op\n", elapsed);
     }
     fprintf(stderr, "parcel audit checksum: %016" PRIx64 "\n", checksum);
+    free(members);
     free(receipts);
     free(scans);
     free(parcels);

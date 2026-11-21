@@ -30,7 +30,7 @@ def output_directory(requested: Path | None, protected: list[Path]) -> Path:
 
 
 def load_inputs(runs, index):
-    profiles, descriptions, gaps, manifests, digests = {}, {}, [], {}, {}
+    profiles, descriptions, gaps, manifests, digests, provenance = {}, {}, [], {}, {}, {}
     for side, run in runs.items():
         manifests[side] = index.cite(index.register(run.manifest_path), "manifest")
         digests[side] = index.register(run.artifact(run.manifest.benchmark.results))
@@ -48,6 +48,7 @@ def load_inputs(runs, index):
                 gaps.append(f"{key}: optional profile {entry.file} is missing.")
                 continue
             digest = index.register(path)
+            provenance[key] = {"side": side, "file": str(path), "digest": digest}
             executable = None
             executable_citation = None
             if entry.executable:
@@ -71,16 +72,19 @@ def load_inputs(runs, index):
             descriptions[key] = description
             profiles[key] = profile
             gaps.extend(f"{key}: {gap}" for gap in description.get("gaps", []))
-    return profiles, descriptions, gaps, manifests, digests
+    return profiles, descriptions, gaps, manifests, digests, provenance
 
 
-def investigate(args, provider: Provider | None) -> tuple[Path, Report]:
+def investigate(args, provider: Provider | None, progress=None) -> tuple[Path, Report]:
+    notify = progress or (lambda event, value: None)
+    notify("progress", "Validating repository and runs")
     repo = Repository(args.repo)
     revisions = {"baseline": repo.resolve(args.base), "candidate": repo.resolve(args.candidate)}
     runs = {side: load_run(getattr(args, f"{side}_run"), sha) for side, sha in revisions.items()}
     out = output_directory(args.output, [repo.root, *(r.directory for r in runs.values())])
     with closing(EvidenceIndex(out / "evidence.sqlite3")) as index:
-        profiles, descriptions, gaps, manifests, digests = load_inputs(runs, index)
+        notify("progress", "Indexing measurements and profiles")
+        profiles, descriptions, gaps, manifests, digests, profile_sources = load_inputs(runs, index)
         baseline, candidate = runs["baseline"], runs["candidate"]
         benchmarks = compare_benchmarks(
             baseline.artifact(baseline.manifest.benchmark.results),
@@ -100,8 +104,14 @@ def investigate(args, provider: Provider | None) -> tuple[Path, Report]:
             findings=None,
             status="measurements_only",
             citations={ref: index.lookup(ref) for ref in manifests.values()},
+            provenance={
+                "repository": str(repo.root),
+                "runs": {side: str(run.directory) for side, run in runs.items()},
+                "profiles": profile_sources,
+            },
         )
         write_report(out, report)
+        notify("checkpoint", str(out))
         if args.agent == "none":
             return out, report
         catalog = {
@@ -113,6 +123,7 @@ def investigate(args, provider: Provider | None) -> tuple[Path, Report]:
             "benchmark_gaps": [g["message"][:500] for g in benchmarks["gaps"][:16]],
         }
         try:
+            notify("progress", "Investigating evidence with the agent")
             query = Queries(repo, revisions, index, benchmarks, profiles, manifests)
             findings = Findings.model_validate(
                 (provider or CodexProvider()).investigate(catalog, query)
@@ -137,9 +148,12 @@ def investigate(args, provider: Provider | None) -> tuple[Path, Report]:
     return out, report
 
 
-def main(argv=None, *, provider: Provider | None = None) -> int:
+def main(argv=None, *, provider: Provider | None = None, progress=None) -> int:
     parser = argparse.ArgumentParser(prog="profiler-ai")
-    command = parser.add_subparsers(dest="command", required=True).add_parser("investigate")
+    commands = parser.add_subparsers(dest="command", required=True)
+    gui = commands.add_parser("gui", help="Open the desktop investigation workspace")
+    gui.add_argument("directory", nargs="?", type=Path, help="Existing investigation directory")
+    command = commands.add_parser("investigate")
     command.add_argument("--repo", required=True, type=Path)
     command.add_argument("--base", required=True)
     command.add_argument("--candidate", required=True)
@@ -155,8 +169,18 @@ def main(argv=None, *, provider: Provider | None = None) -> int:
         help="Request Codex findings or stop after recording measurements",
     )
     args = parser.parse_args(argv)
+    if args.command == "gui":
+        try:
+            from .gui.app import launch
+        except ModuleNotFoundError as exc:
+            if exc.name != "PySide6":
+                raise
+            print("The desktop app requires Python 3.12–3.14 and the gui extra. "
+                  "Run uv sync --extra gui.", file=sys.stderr)
+            return 2
+        return launch(args.directory)
     try:
-        out, report = investigate(args, provider)
+        out, report = investigate(args, provider, progress)
     except (ValueError, OSError, sqlite3.Error) as exc:
         print(f"Investigation failed: {exc}", file=sys.stderr)
         return 2
