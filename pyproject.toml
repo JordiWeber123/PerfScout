@@ -3,7 +3,7 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "profiler-ai"
+name = "perfscout"
 version = "0.1.0"
 description = "Investigate performance differences across measured Git revisions"
 requires-python = ">=3.12"
@@ -13,6 +13,7 @@ dependencies = ["pydantic>=2.8,<3", "PyYAML>=6,<7", "openai-codex>=0.171,<0.172"
 gui = ["PySide6-Essentials>=6.8,<7; python_version < '3.15'"]
 
 [project.scripts]
+perfscout = "profiler_ai.cli:main"
 profiler-ai = "profiler_ai.cli:main"
 
 [dependency-groups]

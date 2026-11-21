@@ -175,7 +175,7 @@ def test_scripted_agent_resolves_citations_against_committed_evidence(tmp_path, 
 
 
 def test_installed_command_and_output_isolation(tmp_path, measured):
-    program = shutil.which("profiler-ai", path=sysconfig.get_path("scripts"))
+    program = shutil.which("perfscout", path=sysconfig.get_path("scripts"))
     assert program is not None
     out = tmp_path / "measurements"
     subprocess.run([program, *measured, "--output", str(out), "--agent", "none"], check=True)

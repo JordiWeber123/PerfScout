@@ -41,14 +41,24 @@ def _reference(kind: str, locator: str, *identities: str) -> str:
     return f"{kind}:{hashlib.sha256(data.encode('ascii')).hexdigest()}"
 
 
+def artifact_reference(digest: str, locator: str) -> str:
+    """Compute an artifact reference without writing to an index."""
+    return _reference("artifact", locator, digest)
+
+
 class EvidenceIndex:
     """Register artifacts by content and look up references in a SQLite index."""
 
-    def __init__(self, path: Path):
-        self._database = sqlite3.connect(path)
+    def __init__(self, path: Path, *, read_only: bool = False):
+        self._database = (
+            sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+            if read_only
+            else sqlite3.connect(path)
+        )
         try:
             self._database.execute("PRAGMA foreign_keys = ON")
-            self._database.executescript(_SCHEMA)
+            if not read_only:
+                self._database.executescript(_SCHEMA)
         except sqlite3.Error:
             self._database.close()
             raise
@@ -84,7 +94,7 @@ class EvidenceIndex:
 
     def cite(self, digest: str, locator: str) -> str:
         """Record the location of an observation within a registered artifact."""
-        reference = _reference("artifact", locator, digest)
+        reference = artifact_reference(digest, locator)
         with self._database:
             cursor = self._database.execute("SELECT 1 FROM artifacts WHERE digest = ?", (digest,))
             if cursor.fetchone() is None:
@@ -137,6 +147,8 @@ class EvidenceIndex:
             """,
             (digest,),
         ).fetchall()
+        if not rows:
+            return None
         return {
             "reference": reference,
             "kind": "artifact",

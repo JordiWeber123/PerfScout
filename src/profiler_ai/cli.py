@@ -18,13 +18,21 @@ from .report import Findings, Report, write_report
 from .repository import Repository
 
 
-def output_directory(requested: Path | None, protected: list[Path]) -> Path:
-    destination = requested or Path(tempfile.gettempdir()) / f"profiler-ai-{uuid4().hex}"
+def validate_output_path(destination: Path, protected: list[Path]) -> Path:
+    """Validate an output path without creating it; creation must still be exclusive."""
     destination = destination.resolve()
     if any(destination.is_relative_to(directory) for directory in protected):
         raise ValueError(
             "Choose an output directory outside the inspected repository and run directories"
         )
+    if destination.exists():
+        raise ValueError("The output directory must not already exist")
+    return destination
+
+
+def output_directory(requested: Path | None, protected: list[Path]) -> Path:
+    destination = requested or Path(tempfile.gettempdir()) / f"perfscout-{uuid4().hex}"
+    destination = validate_output_path(destination, protected)
     destination.mkdir(parents=True, exist_ok=False)
     return destination
 
@@ -149,7 +157,7 @@ def investigate(args, provider: Provider | None, progress=None) -> tuple[Path, R
 
 
 def main(argv=None, *, provider: Provider | None = None, progress=None) -> int:
-    parser = argparse.ArgumentParser(prog="profiler-ai")
+    parser = argparse.ArgumentParser(prog="perfscout")
     commands = parser.add_subparsers(dest="command", required=True)
     gui = commands.add_parser("gui", help="Open the desktop investigation workspace")
     gui.add_argument("directory", nargs="?", type=Path, help="Existing investigation directory")
@@ -175,8 +183,11 @@ def main(argv=None, *, provider: Provider | None = None, progress=None) -> int:
         except ModuleNotFoundError as exc:
             if exc.name != "PySide6":
                 raise
-            print("The desktop app requires Python 3.12–3.14 and the gui extra. "
-                  "Run uv sync --extra gui.", file=sys.stderr)
+            print(
+                "The desktop app requires Python 3.12–3.14 and the gui extra. "
+                "Launch it with uv run --extra gui perfscout gui.",
+                file=sys.stderr,
+            )
             return 2
         return launch(args.directory)
     try:

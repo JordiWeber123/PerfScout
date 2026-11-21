@@ -95,6 +95,7 @@ class _Reading:
     event: str
     field: str | None
     value: int
+    raw_value: int | str
 
     def locator(self) -> str:
         path = (*self.region.path, self.event)
@@ -160,7 +161,7 @@ def _readings(region: _Region, data: dict[str, Any]) -> Iterator[_Reading]:
             series = [(None, value)]
         for field, reading in series:
             path = (*region.path, event) if field is None else (*region.path, event, field)
-            yield _Reading(region, event, field, _counter(reading, _locator(*path)))
+            yield _Reading(region, event, field, _counter(reading, _locator(*path)), reading)
 
 
 class PapiProfile:
@@ -206,9 +207,13 @@ class PapiProfile:
 
     @classmethod
     def load(cls, path: Path, cite: Citation) -> Self:
+        return cls.from_bytes(read_artifact(path), path, cite)
+
+    @classmethod
+    def from_bytes(cls, artifact: bytes, path: Path, cite: Citation) -> Self:
         try:
             document = json.loads(
-                read_artifact(path), object_pairs_hook=_unique_object, parse_constant=_constant
+                artifact, object_pairs_hook=_unique_object, parse_constant=_constant
             )
         except ProfileError:
             raise
@@ -277,18 +282,7 @@ class PapiProfile:
             if any(context[key] != value for key, value in filters.items()):
                 continue
             if offset <= total_rows < offset + limit:
-                rows.append(
-                    {
-                        **context,
-                        **self._event_fields(measurement.event),
-                        "region": display_text(region.name),
-                        "parent_region_id": region.parent_id,
-                        "region_count": region.count,
-                        "value": measurement.value,
-                        "exact_value": str(measurement.value),
-                        "evidence": [self._cite(measurement.locator())],
-                    }
-                )
+                rows.append(self._reading_row(measurement, context))
             total_rows += 1
         return {
             "format": "papi-hl-json",
@@ -300,3 +294,35 @@ class PapiProfile:
             "gaps": [] if total_rows else ["PAPI capture has no readings matching the query."],
             "evidence": [self._cite(_locator())],
         }
+
+    def _reading_row(self, measurement: _Reading, context: dict) -> dict:
+        region = measurement.region
+        return {
+            **context,
+            **self._event_fields(measurement.event),
+            "region": display_text(region.name),
+            "parent_region_id": region.parent_id,
+            "region_count": region.count,
+            "value": measurement.value,
+            "exact_value": str(measurement.value),
+            "evidence": [self._cite(measurement.locator())],
+        }
+
+    def inspect(self, locator: str) -> dict[str, Any]:
+        """Return the description or the exact reading identified by a citation."""
+        if locator == _locator():
+            return self.describe()
+        for measurement in self._readings:
+            if measurement.locator() == locator:
+                region = measurement.region
+                row = self._reading_row(
+                    measurement,
+                    {
+                        "region_id": region.id,
+                        "thread": region.thread,
+                        "rank": region.rank,
+                        "reading": measurement.field or "region_value",
+                    },
+                )
+                return {**row, "raw_value": measurement.raw_value}
+        raise ProfileError("PAPI citation does not identify a reading in the capture")

@@ -9,7 +9,8 @@ The Python package lives in `src/profiler_ai/`. Start at `cli.py` to follow a ru
 ## Development commands
 
 - `uv sync --locked` installs the package and development dependencies using Python 3.12 or newer.
-- `uv run profiler-ai investigate --help` shows the installed CLI options.
+- `uv run perfscout investigate --help` shows the installed CLI options.
+- `uv run --extra gui perfscout gui ./investigation` opens the native workspace. Use the same extra with `pytest` to include the Qt tests.
 - `uv run pytest` runs the offline suite. The live Codex investigation requires a configured account and explicit opt-in via `PROFILER_AI_LIVE_CODEX=1`.
 - `uv run ruff check .` and `uv run ruff format --check .` check lint and formatting.
 

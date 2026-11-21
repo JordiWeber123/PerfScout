@@ -139,11 +139,7 @@ class Repository:
             raise ValueError("source lines must be a one-based inclusive range")
         if end - start + 1 > _MAX_SOURCE_LINES:
             raise ValueError(f"source ranges may contain up to {_MAX_SOURCE_LINES} lines")
-        commit = _commit_object(sha)
-        path = _git_path(path)
-        blob = _git(self.root, ["cat-file", "blob", f"{commit}:{path}"], _MAX_SOURCE_BYTES)
-        if b"\x00" in blob:
-            raise ValueError(f"committed path is binary: {path!r}")
+        blob = self._source_blob(sha, path)
         lines = blob.split(b"\n")
         if lines[-1] == b"":
             lines.pop()
@@ -158,6 +154,42 @@ class Repository:
             return selected.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ValueError(f"committed path is not UTF-8 text: {path!r}") from exc
+
+    def _source_blob(self, sha: str, path: str) -> bytes:
+        object_name = f"{_commit_object(sha)}:{_git_path(path)}"
+        blob = _git(self.root, ["cat-file", "blob", object_name], _MAX_SOURCE_BYTES)
+        if b"\x00" in blob:
+            raise ValueError(f"committed path is binary: {path!r}")
+        return blob
+
+    def source_file(self, sha: str, path: str) -> str:
+        """Read a bounded committed UTF-8 file."""
+        try:
+            return self._source_blob(sha, path).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"committed path is not UTF-8 text: {path!r}") from exc
+
+    def changed_files(self, base: str, candidate: str) -> list[tuple[str, str]]:
+        """Return status and path pairs between two commits."""
+        args = [
+            "diff",
+            "--name-status",
+            "-z",
+            "--no-renames",
+            "--no-relative",
+            "--no-ext-diff",
+            _commit_object(base),
+            _commit_object(candidate),
+            "--",
+        ]
+        raw = _git(self._git_dir, args, _MAX_DIFF_BYTES, bare=True)
+        if not raw:
+            return []
+        fields = raw.rstrip(b"\x00").split(b"\x00")
+        return [
+            (status.decode("ascii"), os.fsdecode(path))
+            for status, path in zip(fields[::2], fields[1::2], strict=True)
+        ]
 
     def diff(self, base: str, candidate: str, paths: Iterable[str] = ()) -> str:
         """Read a bounded unified patch between two commits, optionally scoped to paths."""

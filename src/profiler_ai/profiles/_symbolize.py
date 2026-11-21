@@ -49,7 +49,7 @@ def symbolize(executable: Path, probe: bytes) -> bytes:
         raise ProfileError("local pprof tooling is unavailable (install pprof or Go)")
     if not executable.is_file():
         raise ProfileError("the supplied matching executable is unavailable")
-    with TemporaryDirectory(prefix="profiler-ai-pprof-", ignore_cleanup_errors=True) as directory:
+    with TemporaryDirectory(prefix="perfscout-pprof-", ignore_cleanup_errors=True) as directory:
         profile = Path(directory, "addresses.pb.gz")
         profile.write_bytes(probe)
         env = {

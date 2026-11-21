@@ -63,7 +63,7 @@ class CodexProvider:
             "The findings schema is " + json.dumps(Findings.model_json_schema())
         )
         with (
-            TemporaryDirectory(prefix="profiler-ai-agent-") as cwd,
+            TemporaryDirectory(prefix="perfscout-agent-") as cwd,
             Codex(CodexConfig(cwd=cwd)) as codex,
         ):
             thread = codex.thread_start(

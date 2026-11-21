@@ -7,6 +7,7 @@ import re
 import zlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import islice
 from pathlib import Path
 from typing import Any, Self
 
@@ -243,24 +244,26 @@ class _PprofData:
                 )
         return tuple(labels)
 
+    def _sample(self, message: Message, resolved: Mapping[int, Sequence[_Frame]]) -> _Sample:
+        frames: list[_Frame] = []
+        for location in message.integers(1, _MAX_STACK_LOCATIONS):
+            if location not in self.locations:
+                raise ProfileError("pprof sample references an unknown location")
+            frames.extend(resolved.get(location, self.locations[location].frames))
+        values = message.integers(2, _MAX_SAMPLE_TYPES)
+        if len(values) != len(self.metrics):
+            raise ProfileError("pprof sample weights do not match the declared sample types")
+        return _Sample(tuple(frames), tuple(map(signed_int64, values)), self._labels(message))
+
     def samples(self, resolved: Mapping[int, Sequence[_Frame]]) -> list[_Sample]:
         samples = []
         frame_count = 0
         for message in self.profile.messages(2):
-            frames: list[_Frame] = []
-            for location in message.integers(1, _MAX_STACK_LOCATIONS):
-                if location not in self.locations:
-                    raise ProfileError("pprof sample references an unknown location")
-                frames.extend(resolved.get(location, self.locations[location].frames))
-            frame_count += len(frames)
+            sample = self._sample(message, resolved)
+            frame_count += len(sample.frames)
             if frame_count > _MAX_TOTAL_FRAMES:
                 raise ProfileError("pprof profile exceeds the 1,000,000 sampled-frame limit")
-            values = message.integers(2, _MAX_SAMPLE_TYPES)
-            if len(values) != len(self.metrics):
-                raise ProfileError("pprof sample weights do not match the declared sample types")
-            samples.append(
-                _Sample(tuple(frames), tuple(map(signed_int64, values)), self._labels(message))
-            )
+            samples.append(sample)
         return samples
 
 
@@ -269,6 +272,53 @@ def _profile_data(artifact: bytes) -> _PprofData:
         return _PprofData(artifact)
     except (UnicodeError, EOFError, gzip.BadGzipFile, zlib.error) as error:
         raise ProfileError("invalid compressed or encoded pprof profile") from error
+
+
+def inspect_pprof(artifact: bytes, locator: str) -> dict[str, Any]:
+    """Read the unmodified sample, location, or profile identified by a locator."""
+    raw = _profile_data(artifact)
+    if locator == "pprof:profile":
+        return PprofProfile(raw, None, lambda loc: loc, None).describe()
+    match = re.fullmatch(r"pprof:(location|sample)/([0-9]{1,20})", locator)
+    if match is None:
+        raise ProfileError("invalid pprof evidence locator")
+    kind, identifier = match[1], int(match[2])
+    if kind == "location":
+        location = raw.locations.get(identifier)
+        if location is None:
+            raise ProfileError("pprof location is absent from the capture")
+        mapping = raw.mappings.get(location.mapping_id)
+        return {
+            "location_id": identifier,
+            "address": f"{location.address:#x}",
+            "mapping_id": location.mapping_id or None,
+            "mapping_file": display_text(mapping.file) if mapping else None,
+            "build_id": display_text(mapping.build_id) if mapping else None,
+            "frames": [frame.describe() for frame in location.frames],
+        }
+    if identifier >= 2**31:
+        raise ProfileError("pprof sample index is outside the capture")
+    message = next(islice(raw.profile.messages(2), identifier, None), None)
+    if message is None:
+        raise ProfileError("pprof sample is absent from the capture")
+    sample = raw._sample(message, {})
+    return {
+        "sample_index": identifier,
+        "weights": [
+            {"metric": display_text(metric.name), "unit": display_text(metric.unit), "value": value}
+            for metric, value in zip(raw.metrics, sample.values, strict=True)
+        ],
+        "frames": [frame.describe() for frame in sample.frames[:256]],
+        "frame_count": len(sample.frames),
+        "labels": [
+            {
+                "key": display_text(key),
+                "value": display_text(value) if isinstance(value, str) else value,
+                "unit": display_text(unit),
+            }
+            for key, value, unit in sample.labels
+        ],
+    }
 
 
 def _address_probe(mapping: _Mapping, addresses: set[int]) -> bytes:
@@ -429,6 +479,11 @@ class PprofProfile:
         cite_executable: Callable[[], str] | None = None,
     ) -> Self:
         return cls(_profile_data(read_artifact(path)), executable, cite, cite_executable)
+
+    @classmethod
+    def from_bytes(cls, artifact: bytes, cite: Citation) -> Self:
+        """Decode a capture without invoking external symbolization tooling."""
+        return cls(_profile_data(artifact), None, cite, None)
 
     def _artifact_evidence(self) -> list[str]:
         evidence = [self._cite("pprof:profile")]
