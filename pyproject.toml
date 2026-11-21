@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "profiler-ai"
+version = "0.1.0"
+description = "Investigate performance differences across measured Git revisions"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.8,<3", "PyYAML>=6,<7", "openai-codex>=0.171,<0.172"]
+
+[project.scripts]
+profiler-ai = "profiler_ai.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.11"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/profiler_ai"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

@@ -1,0 +1,39 @@
+{
+  "rank": "7",
+  "event_definitions": {
+    "PAPI_TOT_CYC": {"component": "perf_event", "type": "delta"},
+    "example:::state/a~b": {"component": "example", "type": "instant", "unit": "states"}
+  },
+  "threads": {
+    "0": {
+      "regions": {
+        "1": {
+          "name": "outer",
+          "parent_region_id": "-1",
+          "cycles": "100",
+          "real_time_nsec": "1000",
+          "PAPI_TOT_CYC": "9007199254740993"
+        },
+        "2": {
+          "name": "inner",
+          "parent_region_id": "1",
+          "cycles": "8",
+          "real_time_nsec": "80",
+          "PAPI_TOT_CYC": {"region_value": "12", "read_1": "5"},
+          "example:::state/a~b": "-2"
+        }
+      }
+    },
+    "1": {
+      "regions": {
+        "1": {
+          "name": "outer",
+          "parent_region_id": "-1",
+          "cycles": "200",
+          "real_time_nsec": "2000",
+          "PAPI_TOT_CYC": "9007199254740995"
+        }
+      }
+    }
+  }
+}

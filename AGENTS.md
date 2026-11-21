@@ -1,44 +1,24 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Structure and responsibilities
 
-This is currently a specification-first repository: `PROJECT.md` defines an evidence-based CLI for comparing a baseline and candidate revision using profiler artifacts. No application source, tests, or build configuration exist yet.
+The Python package lives in `src/profiler_ai/`. Start at `cli.py` to follow a run from input validation through report generation. Keep Git object reads in `repository.py`, artifact indexing in `evidence.py`, and measurement calculations in `benchmarks.py` and `profiles/`. The agent chooses evidence queries through `queries.py`. Keep model-specific session code behind the provider interface in `agent.py`.
 
-When implementation begins, use a clear Go-oriented layout:
+`PROJECT.md` describes the product. `PLAN.md` defines the first release and later milestones. The current investigator consumes existing measurement bundles and proposes experiments.
 
-- `cmd/` for CLI entry points and flag wiring.
-- `internal/` for investigation orchestration, worktrees, manifests, experiment records, and reports.
-- `adapters/` for profiler integrations; begin with PAPI, Go benchmark output, and pprof CPU profiles.
-- `testdata/` for small, versioned manifests and sanitized profiler fixtures.
+## Development commands
 
-Keep raw artifacts immutable and preserve profiler-specific fields; a common interface must not reduce CPU, GPU, and counter data to a single generic metric.
+- `uv sync --locked` installs the package and development dependencies using Python 3.12 or newer.
+- `uv run profiler-ai investigate --help` shows the installed CLI options.
+- `uv run pytest` runs the offline suite. The live Codex investigation requires a configured account and explicit opt-in via `PROFILER_AI_LIVE_CODEX=1`.
+- `uv run ruff check .` and `uv run ruff format --check .` check lint and formatting.
 
-## Build, Test, and Development Commands
+## Implementation and test conventions
 
-There are no runnable commands yet. Once Go tooling is committed, the expected baseline is:
+Use four-space indentation, snake_case functions, and PascalCase classes. Preserve original units, sample counts, revision IDs, and citations when adding adapters. Keep the raw artifacts intact. Query committed Git objects and place investigation outputs outside the inspected checkout.
 
-```powershell
-go build ./...  # Compile every package
-go test ./...   # Run unit and integration tests
-go vet ./...    # Run static analysis
-```
+Add behavior-focused tests under `tests/test_*.py`. Use disposable Git repositories and small sanitized captures in `tests/fixtures/`. Check both the numeric result and its evidence locator. Use a scripted provider for deterministic integration tests.
 
-Only add commands to this guide after their configuration and dependencies are checked in.
+## Commits and pull requests
 
-## Coding Style & Naming Conventions
-
-Follow the formatter and idioms of the chosen language. For Go, run `gofmt` on changed files and `go vet ./...` before review. Use focused, domain-driven names such as `PprofAdapter`, `BaselineManifest`, and `ExperimentPlan`. Keep exported APIs small and document exported types.
-
-Make units unambiguous: prefer fields such as `DurationNs` and `AllocBytes`, or include an explicit unit. Return structured results with evidence references instead of unbounded profile dumps.
-
-## Testing Guidelines
-
-Place tests beside the package they cover and use Go names such as `TestPprofAdapterReportsHotspots`. Prefer deterministic fixtures in `testdata/`. Test parsing, unit conversion, evidence references, revision selection, and hypothesis interpretation independently. Integration tests must use disposable repositories or detached worktrees so a user's working tree remains unchanged.
-
-## Commits and Pull Requests
-
-Recent history uses concise, imperative summaries (for example, `Little detail in PROJECT.md`). Continue that style: `Add pprof CPU adapter`. Keep commits narrowly scoped. Pull requests should describe behavior changes, validation performed, affected artifact formats or schema changes, and representative CLI/report output when useful.
-
-## Security and Configuration
-
-Treat repositories and profiling artifacts as untrusted. Never run recorded collection commands without explicit approval. Do not commit credentials, absolute local paths, machine-identifying details, or customer profile captures; sanitize fixtures before adding them.
+History uses short descriptive subjects. Keep each change focused, for example `Preserve PAPI thread identities`. Describe changes to supported formats, report schemas, and CLI behavior in the pull request. Include the checks run and representative output when it clarifies a behavior change.

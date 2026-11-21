@@ -1,0 +1,15 @@
+﻿goos: windows
+goarch: amd64
+cpu: AMD Ryzen 7 4700U with Radeon Graphics         
+BenchmarkCatalog/Large/Index-4   	      16	  64984069 ns/op	30624722 B/op	   85284 allocs/op
+BenchmarkCatalog/Large/Index-4   	      25	  45517288 ns/op	30624724 B/op	   85284 allocs/op
+BenchmarkCatalog/Large/Index-4   	      27	  47543085 ns/op	30624720 B/op	   85284 allocs/op
+BenchmarkCatalog/Large/Index-4   	      26	  47157046 ns/op	30624724 B/op	   85284 allocs/op
+BenchmarkCatalog/Large/Index-4   	      26	  45839219 ns/op	30624920 B/op	   85284 allocs/op
+BenchmarkCatalog/Large/Search-4  	      64	  18331769 ns/op	 1184896 B/op	     151 allocs/op
+BenchmarkCatalog/Large/Search-4  	      70	  18888911 ns/op	 1184896 B/op	     151 allocs/op
+BenchmarkCatalog/Large/Search-4  	      66	  19112679 ns/op	 1184896 B/op	     151 allocs/op
+BenchmarkCatalog/Large/Search-4  	      67	  18525254 ns/op	 1184896 B/op	     151 allocs/op
+BenchmarkCatalog/Large/Search-4  	      67	  18146533 ns/op	 1184896 B/op	     151 allocs/op
+PASS
+ok  	command-line-arguments	15.325s
